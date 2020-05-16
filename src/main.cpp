@@ -12,6 +12,9 @@
 #define VIOLET 0x5
 #define WHITE 0x7
 
+#define MOTOR_SPEED_STEP 10
+#define MOTOR_SPEED_MAX 400
+
 DualG2HighPowerMotorShield24v14 md;
 Adafruit_RGBLCDShield lcd = Adafruit_RGBLCDShield();
 int desiredSpeed;
@@ -81,24 +84,32 @@ void loop() {
   uint8_t buttons = lcd.readButtons();
 
   if (buttons) {
-    if (buttons & BUTTON_RIGHT) {
-      desiredSpeed += 10;
+    bool speedChange = false;
 
-      if (desiredSpeed > 400) {
-        desiredSpeed = 400;
+    if (buttons & BUTTON_RIGHT) {
+      speedChange = true;
+
+      desiredSpeed += MOTOR_SPEED_STEP;
+
+      if (desiredSpeed > MOTOR_SPEED_MAX) {
+        desiredSpeed = MOTOR_SPEED_MAX;
       }
     } else if (buttons & BUTTON_LEFT) {
-      desiredSpeed -= 10;
+      speedChange = true;
 
-      if (desiredSpeed < -400) {
-        desiredSpeed = -400;
+      desiredSpeed -= MOTOR_SPEED_STEP;
+
+      if (desiredSpeed < -MOTOR_SPEED_MAX) {
+        desiredSpeed = -MOTOR_SPEED_MAX;
       }
     }
 
-    setMotorSpeed();
-    displayMotorSpeed();
+    if (speedChange) {
+      setMotorSpeed();
+      displayMotorSpeed();
+    }
 
-    //Debounce, of sorts.
+    //Debounce.
     delay(200);
   }
 }

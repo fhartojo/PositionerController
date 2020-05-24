@@ -3,6 +3,8 @@
 #include <Wire.h>
 #include <Adafruit_RGBLCDShield.h>
 #include <utility/Adafruit_MCP23017.h>
+#include "version.h"
+#include "config.h"
 
 #define RED 0x1
 #define YELLOW 0x3
@@ -12,13 +14,11 @@
 #define VIOLET 0x5
 #define WHITE 0x7
 
-#define MOTOR_SPEED_STEP 10
-#define MOTOR_SPEED_MAX 400
-
 DualG2HighPowerMotorShield24v14 md;
 Adafruit_RGBLCDShield lcd = Adafruit_RGBLCDShield();
 int desiredSpeed;
 int currentSpeed;
+bool startMotor = false;
 
 void stopOnFault() {
   if (md.getM1Fault()) {
@@ -33,16 +33,58 @@ void stopOnFault() {
   }
 }
 
-void setMotorSpeed() {
-  if (currentSpeed == 0) {
-    //If the motor is off now, assume we're here to start it.
-    md.enableM1Driver();
-    delay(1);
+void adjustDesiredSpeed() {
+  if (desiredSpeed > MOTOR_SPEED_MAX) {
+    desiredSpeed = MOTOR_SPEED_MAX;
+  } else if (desiredSpeed < -MOTOR_SPEED_MAX) {
+    desiredSpeed = -MOTOR_SPEED_MAX;
   }
+}
 
-  md.setM1Speed(desiredSpeed);
+void setM1Speed(int i) {
+  md.setM1Speed(i);
   stopOnFault();
   delay(2);
+}
+
+void setMotorSpeed() {
+  if (currentSpeed == 0) {
+    //If the motor is off now, check if we're to start it.
+    if (startMotor) {
+      md.enableM1Driver();
+      delay(1);
+    } else {
+      return;
+    }
+  } else {
+    //If the motor is running, check if we're to stop it.
+    if (!startMotor) {
+      if (currentSpeed > 0) {
+        for (int i = currentSpeed - 1; i >= 0; i--) {
+          setM1Speed(i);
+        }
+      } else {
+        for (int i = currentSpeed + 1; i <= 0; i++) {
+          setM1Speed(i);
+        }
+      }
+
+      md.disableM1Driver();
+      currentSpeed = 0;
+
+      return;
+    }
+  }
+
+  if (desiredSpeed > currentSpeed) {
+    for (int i = currentSpeed + 1; i <= desiredSpeed; i++) {
+      setM1Speed(i);
+    }
+  } else if (desiredSpeed < currentSpeed) {
+    for (int i = currentSpeed - 1; i >= desiredSpeed; i--) {
+      setM1Speed(i);
+    }
+  }
 
   if (desiredSpeed == 0) {
     //We're turning the motor off.
@@ -52,15 +94,48 @@ void setMotorSpeed() {
   currentSpeed = desiredSpeed;
 }
 
-void displayMotorSpeed() {
+void displayWelcome() {
   lcd.clear();
   lcd.setCursor(0, 0);
+  lcd.print("Rotary Table");
+  lcd.setCursor(0, 1);
+  lcd.print("v");
+  lcd.print(RELEASE_VERSION);
+}
+
+void displayForm() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Speed:");
+  lcd.setCursor(0, 1);
+  lcd.print("SELECT to ");
+}
+
+void displayMotorSpeed() {
+  lcd.setCursor(6, 0);
+  lcd.print("         ");
+  lcd.setCursor(6, 0);
 
   if (currentSpeed == 0) {
-    lcd.print("OFF");
+    lcd.print("off");
   } else {
     lcd.print(currentSpeed);
   }
+
+  lcd.print("/");
+
+  if (desiredSpeed == 0) {
+    lcd.print("off");
+  } else {
+    lcd.print(desiredSpeed);
+  }
+}
+
+void displayAction() {
+  lcd.setCursor(10, 1);
+  lcd.print("     ");
+  lcd.setCursor(10, 1);
+  lcd.print(startMotor ? "stop" : "run");
 }
 
 void setup() {
@@ -77,37 +152,42 @@ void setup() {
 
   delay(10);
 
+  displayWelcome();
+  delay(2000);
+
+  displayForm();
   displayMotorSpeed();
+  displayAction();
 }
 
 void loop() {
   uint8_t buttons = lcd.readButtons();
 
   if (buttons) {
-    bool speedChange = false;
-
     if (buttons & BUTTON_RIGHT) {
-      speedChange = true;
-
-      desiredSpeed += MOTOR_SPEED_STEP;
-
-      if (desiredSpeed > MOTOR_SPEED_MAX) {
-        desiredSpeed = MOTOR_SPEED_MAX;
-      }
+      desiredSpeed += MOTOR_SPEED_STEP_COARSE;
     } else if (buttons & BUTTON_LEFT) {
-      speedChange = true;
-
-      desiredSpeed -= MOTOR_SPEED_STEP;
-
-      if (desiredSpeed < -MOTOR_SPEED_MAX) {
-        desiredSpeed = -MOTOR_SPEED_MAX;
+      desiredSpeed -= MOTOR_SPEED_STEP_COARSE;
+    } else if (buttons & BUTTON_UP) {
+      if (desiredSpeed > 0) {
+        desiredSpeed += MOTOR_SPEED_STEP_FINE;
+      } else if (desiredSpeed < 0) {
+        desiredSpeed -= MOTOR_SPEED_STEP_FINE;
       }
+    } else if (buttons & BUTTON_DOWN) {
+      if (desiredSpeed > 0) {
+        desiredSpeed -= MOTOR_SPEED_STEP_FINE;
+      } else if (desiredSpeed < 0) {
+        desiredSpeed += MOTOR_SPEED_STEP_FINE;
+      }
+    } else if (buttons & BUTTON_SELECT) {
+      startMotor = !startMotor;
     }
 
-    if (speedChange) {
-      setMotorSpeed();
-      displayMotorSpeed();
-    }
+    adjustDesiredSpeed();
+    setMotorSpeed();
+    displayMotorSpeed();
+    displayAction();
 
     //Debounce.
     delay(200);
